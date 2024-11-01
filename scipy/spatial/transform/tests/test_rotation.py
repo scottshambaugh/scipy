@@ -1773,6 +1773,10 @@ def test_concatenate():
     result = Rotation.concatenate(rotation)
     assert_equal(rotation.as_quat(), result.as_quat())
 
+    # Test that a copy is returned
+    assert rotation is not result
+    assert rotation._quat is not result._quat
+
     # Test Rotation input for single rotations
     result = Rotation.concatenate(Rotation.identity())
     assert_equal(Rotation.identity().as_quat(), result.as_quat())
