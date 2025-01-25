@@ -5,51 +5,20 @@ import warnings
 import numpy as np
 from scipy._lib._util import check_random_state, _transition_to_rng
 from ._rotation_groups import create_group
+from ._common cimport (empty1, empty2, empty3, zeros2, norm3, dot3, cross3,
+                       compose_quat_single, compose_quat)
 
 cimport numpy as np
 cimport cython
-from cython.view cimport array
 from libc.math cimport sqrt, sin, cos, atan2, acos, hypot, isnan, NAN, pi
 
 np.import_array()
 
-# utilities for empty array initialization
-cdef inline double[:] _empty1(int n) noexcept:
-    return array(shape=(n,), itemsize=sizeof(double), format=b"d")
-cdef inline double[:, :] _empty2(int n1, int n2) noexcept :
-    return array(shape=(n1, n2), itemsize=sizeof(double), format=b"d")
-cdef inline double[:, :, :] _empty3(int n1, int n2, int n3) noexcept:
-    return array(shape=(n1, n2, n3), itemsize=sizeof(double), format=b"d")
-cdef inline double[:, :] _zeros2(int n1, int n2) noexcept:
-    cdef double[:, :] arr = array(shape=(n1, n2),
-        itemsize=sizeof(double), format=b"d")
-    arr[:, :] = 0
-    return arr
-
-# flat implementations of numpy functions
-@cython.boundscheck(False)
-@cython.wraparound(False)
-cdef inline double[:] _cross3(const double[:] a, const double[:] b) noexcept:
-    cdef double[:] result = _empty1(3)
-    result[0] = a[1]*b[2] - a[2]*b[1]
-    result[1] = a[2]*b[0] - a[0]*b[2]
-    result[2] = a[0]*b[1] - a[1]*b[0]
-    return result
-
-@cython.boundscheck(False)
-@cython.wraparound(False)
-cdef inline double _dot3(const double[:] a, const double[:] b) noexcept nogil:
-    return a[0]*b[0] + a[1]*b[1] + a[2]*b[2]
-
-@cython.boundscheck(False)
-@cython.wraparound(False)
-cdef inline double _norm3(const double[:] elems) noexcept nogil:
-    return sqrt(_dot3(elems, elems))
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cdef inline double _normalize4(double[:] elems) noexcept nogil:
-    cdef double norm = sqrt(_dot3(elems, elems) + elems[3]*elems[3])
+    cdef double norm = sqrt(dot3(elems, elems) + elems[3]*elems[3])
 
     if norm == 0:
         return NAN
@@ -208,15 +177,15 @@ cdef double[:, :] _compute_euler_from_matrix(
     cdef const double[:] n3 = _elementary_basis_vector(seq[2])
 
     # Step 2
-    cdef double sl = _dot3(_cross3(n1, n2), n3)
-    cdef double cl = _dot3(n1, n3)
+    cdef double sl = dot3(cross3(n1, n2), n3)
+    cdef double cl = dot3(n1, n3)
 
     # angle offset is lambda from the paper referenced in [2] from docstring of
     # `as_euler` function
     cdef double offset = atan2(sl, cl)
-    cdef double[:, :] c_ = _empty2(3, 3)
+    cdef double[:, :] c_ = empty2(3, 3)
     c_[0, :] = n2
-    c_[1, :] = _cross3(n1, n2)
+    c_[1, :] = cross3(n1, n2)
     c_[2, :] = n1
     cdef np.ndarray[double, ndim=2] c = np.asarray(c_)
 
@@ -227,7 +196,7 @@ cdef double[:, :] _compute_euler_from_matrix(
     ])
 
     # some forward definitions
-    cdef double[:, :] angles = _empty2(num_rotations, 3)
+    cdef double[:, :] angles = empty2(num_rotations, 3)
     cdef double[:, :] matrix_trans # transformed matrix
     cdef double[:] _angles # accessor for each rotation
     cdef np.ndarray[double, ndim=2] res
@@ -350,7 +319,7 @@ cdef double[:, :] _compute_euler_from_quat(
 
     # some forward definitions
     cdef double a, b, c, d
-    cdef double[:, :] angles = _empty2(num_rotations, 3)
+    cdef double[:, :] angles = empty2(num_rotations, 3)
 
     for ind in range(num_rotations):
 
@@ -387,8 +356,8 @@ cdef double[:, :] _compute_davenport_from_quat(
     if not extrinsic:
         n1, n3 = n3, n1
 
-    cdef double[:] n_cross = _cross3(n1, n2)
-    cdef double lamb = atan2(_dot3(n3, n_cross), _dot3(n3, n1))
+    cdef double[:] n_cross = cross3(n1, n2)
+    cdef double lamb = atan2(dot3(n3, n_cross), dot3(n3, n1))
 
     cdef int correct_set = False
     if lamb < 0:
@@ -410,19 +379,19 @@ cdef double[:, :] _compute_davenport_from_quat(
     cdef Py_ssize_t num_rotations = quat.shape[0]
 
     # some forward definitions
-    cdef double[:, :] angles = _empty2(num_rotations, 3)
-    cdef double[:] quat_transformed = _empty1(4)
+    cdef double[:, :] angles = empty2(num_rotations, 3)
+    cdef double[:] quat_transformed = empty1(4)
     cdef double a, b, c, d
 
     for ind in range(num_rotations):
-        _compose_quat_single(quat_lamb, quat[ind], quat_transformed)
+        compose_quat_single(quat_lamb, quat[ind], quat_transformed)
 
         # Step 1
         # Permutate quaternion elements
         a = quat_transformed[3]
-        b = _dot3(quat_transformed[:3], n1)
-        c = _dot3(quat_transformed[:3], n2)
-        d = _dot3(quat_transformed[:3], n_cross)
+        b = dot3(quat_transformed[:3], n1)
+        c = dot3(quat_transformed[:3], n2)
+        d = dot3(quat_transformed[:3], n_cross)
 
         _get_angles(angles[ind], extrinsic, False, 1, lamb, a, b, c, d)
 
@@ -431,42 +400,6 @@ cdef double[:, :] _compute_davenport_from_quat(
 
     return angles
 
-@cython.boundscheck(False)
-@cython.wraparound(False)
-cdef inline void _compose_quat_single( # calculate p * q into r
-    const double[:] p, const double[:] q, double[:] r
-) noexcept:
-    cdef double[:] cross = _cross3(p[:3], q[:3])
-
-    r[0] = p[3]*q[0] + q[3]*p[0] + cross[0]
-    r[1] = p[3]*q[1] + q[3]*p[1] + cross[1]
-    r[2] = p[3]*q[2] + q[3]*p[2] + cross[2]
-    r[3] = p[3]*q[3] - p[0]*q[0] - p[1]*q[1] - p[2]*q[2]
-
-@cython.boundscheck(False)
-@cython.wraparound(False)
-cdef inline double[:, :] _compose_quat(
-    const double[:, :] p, const double[:, :] q
-) noexcept:
-    cdef Py_ssize_t n = max(p.shape[0], q.shape[0])
-    cdef double[:, :] product = _empty2(n, 4)
-
-    # dealing with broadcasting
-    if p.shape[0] == 1:
-        for ind in range(n):
-            _compose_quat_single(p[0], q[ind], product[ind])
-    elif q.shape[0] == 1:
-        for ind in range(n):
-            _compose_quat_single(p[ind], q[0], product[ind])
-    else:
-        for ind in range(n):
-            _compose_quat_single(p[ind], q[ind], product[ind])
-
-    return product
-
-def compose_quat(p, q):
-    """Composition of quaternions."""
-    return _compose_quat(p, q)
 
 @cython.boundscheck(False)
 @cython.wraparound(False)
@@ -474,7 +407,7 @@ cdef inline double[:, :] _make_elementary_quat(
     uchar axis, const double[:] angles
 ) noexcept:
     cdef Py_ssize_t n = angles.shape[0]
-    cdef double[:, :] quat = _zeros2(n, 4)
+    cdef double[:, :] quat = zeros2(n, 4)
 
     cdef int axis_ind
     if axis == b'x':   axis_ind = 0
@@ -496,11 +429,11 @@ cdef double[:, :] _elementary_quat_compose(
 
     for idx in range(1, seq_len):
         if intrinsic:
-            result = _compose_quat(
+            result = compose_quat(
                 result,
                 _make_elementary_quat(seq[idx], angles[:, idx]))
         else:
-            result = _compose_quat(
+            result = compose_quat(
                 _make_elementary_quat(seq[idx], angles[:, idx]),
                 result)
     return result
@@ -1119,10 +1052,10 @@ cdef class Rotation:
 
         cdef Py_ssize_t num_rotations = cmatrix.shape[0]
         cdef Py_ssize_t i, j, k
-        cdef double[:] decision = _empty1(4)
+        cdef double[:] decision = empty1(4)
         cdef int choice
 
-        cdef double[:, :] quat = _empty2(num_rotations, 4)
+        cdef double[:, :] quat = empty2(num_rotations, 4)
 
         for ind in range(num_rotations):
             decision[0] = cmatrix[ind, 0, 0]
@@ -1244,10 +1177,10 @@ cdef class Rotation:
 
         cdef Py_ssize_t num_rotations = crotvec.shape[0]
         cdef double angle, scale, angle2
-        cdef double[:, :] quat = _empty2(num_rotations, 4)
+        cdef double[:, :] quat = empty2(num_rotations, 4)
 
         for ind in range(num_rotations):
-            angle = _norm3(crotvec[ind, :])
+            angle = norm3(crotvec[ind, :])
 
             if angle <= 1e-3:  # small angle Taylor series expansion
                 angle2 = angle * angle
@@ -1628,11 +1561,11 @@ cdef class Rotation:
             cmrp = mrp
 
         cdef Py_ssize_t num_rotations = cmrp.shape[0]
-        cdef double[:, :] quat = _empty2(num_rotations, 4)
+        cdef double[:, :] quat = empty2(num_rotations, 4)
         cdef double mrp_squared_plus_1
 
         for ind in range(num_rotations):
-            mrp_squared_plus_1 = 1 + _dot3(cmrp[ind, :], cmrp[ind, :])
+            mrp_squared_plus_1 = 1 + dot3(cmrp[ind, :], cmrp[ind, :])
 
             quat[ind, 0] = 2 * cmrp[ind, 0] / mrp_squared_plus_1
             quat[ind, 1] = 2 * cmrp[ind, 1] / mrp_squared_plus_1
@@ -1803,7 +1736,7 @@ cdef class Rotation:
         """
         cdef double[:, :] quat = self._quat
         cdef Py_ssize_t num_rotations = quat.shape[0]
-        cdef double[:, :, :] matrix = _empty3(num_rotations, 3, 3)
+        cdef double[:, :, :] matrix = empty3(num_rotations, 3, 3)
 
         cdef double x, y, z, w, x2, y2, z2, w2
         cdef double xy, zw, xz, yw, yz, xw
@@ -1913,14 +1846,14 @@ cdef class Rotation:
 
         cdef Py_ssize_t num_rotations = len(self._quat)
         cdef double angle, scale, angle2
-        cdef double[:, :] rotvec = _empty2(num_rotations, 3)
+        cdef double[:, :] rotvec = empty2(num_rotations, 3)
         cdef double[:] quat
 
         for ind in range(num_rotations):
             quat = self._quat[ind, :].copy()
             _quat_canonical_single(quat)  # w > 0 ensures that 0 <= angle <= pi
 
-            angle = 2 * atan2(_norm3(quat), quat[3])
+            angle = 2 * atan2(norm3(quat), quat[3])
 
             if angle <= 1e-3:  # small angle Taylor series expansion
                 angle2 = angle * angle
@@ -2330,7 +2263,7 @@ cdef class Rotation:
         .. versionadded:: 1.6.0
         """
         cdef Py_ssize_t num_rotations = len(self._quat)
-        cdef double[:, :] mrps = _empty2(num_rotations, 3)
+        cdef double[:, :] mrps = empty2(num_rotations, 3)
         cdef int sign
         cdef double denominator
 
@@ -2636,7 +2569,7 @@ cdef class Rotation:
                              "got {} rotations in first and {} rotations in "
                              "second object.".format(
                                 len(self), len(other)))
-        result = _compose_quat(self._quat, other._quat)
+        result = compose_quat(self._quat, other._quat)
         if self._single and other._single:
             result = result[0]
         return self.__class__(result, normalize=True, copy=False)
@@ -2796,10 +2729,10 @@ cdef class Rotation:
         """
         cdef double[:, :] quat = self._quat
         cdef Py_ssize_t num_rotations = quat.shape[0]
-        cdef double[:] angles = _empty1(num_rotations)
+        cdef double[:] angles = empty1(num_rotations)
 
         for ind in range(num_rotations):
-            angles[ind] = 2 * atan2(_norm3(quat[ind, :3]), abs(quat[ind, 3]))
+            angles[ind] = 2 * atan2(norm3(quat[ind, :3]), abs(quat[ind, 3]))
 
         if self._single:
             return angles[0]
@@ -3501,8 +3434,8 @@ cdef class Rotation:
                                  "infinite weight or one vector pair")
             a_pri = a[weight_is_inf]
             b_pri = b[weight_is_inf]
-            a_pri_norm = _norm3(a_pri[0])
-            b_pri_norm = _norm3(b_pri[0])
+            a_pri_norm = norm3(a_pri[0])
+            b_pri_norm = norm3(b_pri[0])
             if a_pri_norm == 0 or b_pri_norm == 0:
                 raise ValueError("Cannot align zero length primary vectors")
             a_pri /= a_pri_norm
@@ -3511,8 +3444,8 @@ cdef class Rotation:
             # We first find the minimum angle rotation between the primary
             # vectors.
             cross = np.cross(b_pri[0], a_pri[0])
-            cross_norm = _norm3(cross)
-            theta = atan2(cross_norm, _dot3(a_pri[0], b_pri[0]))
+            cross_norm = norm3(cross)
+            theta = atan2(cross_norm, dot3(a_pri[0], b_pri[0]))
             tolerance = 1e-3  # tolerance for small angle approximation (rad)
             R_flip = cls.identity()
             if (np.pi - theta) < tolerance:

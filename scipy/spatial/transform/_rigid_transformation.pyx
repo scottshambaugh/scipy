@@ -2,7 +2,8 @@
 
 import numpy as np
 from scipy._lib._util import check_random_state, _transition_to_rng
-from ._rotation import Rotation, compose_quat
+from ._rotation import Rotation
+from ._common cimport compose_quat
 
 cimport numpy as np
 cimport cython
